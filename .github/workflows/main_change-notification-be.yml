@@ -1,16 +1,26 @@
-# Build and deploy the FastAPI webhook to Azure App Service (change-notification-be).
-# Dependencies are managed by uv: the build here installs from uv.lock to catch
-# problems early, and App Service's Oryx build (SCM_DO_BUILD_DURING_DEPLOYMENT=true)
-# installs from pyproject.toml + uv.lock on the platform.
+# CI + CD for the FastAPI webhook (Azure App Service: change-notification-be).
+#   - Pull requests into main: build and check only (no deploy).
+#   - Push to main / manual run: build and check, then deploy.
+# App Service's Oryx build (SCM_DO_BUILD_DURING_DEPLOYMENT=true) installs
+# dependencies from pyproject.toml + uv.lock on the platform.
 # Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
 
 name: Build and deploy Python app to Azure Web App - change-notification-be
 
 on:
+  pull_request:
+    branches:
+      - 'main'
   push:
     branches:
       - 'main'
   workflow_dispatch:
+
+# A newer pull-request push cancels the older check. Deploys are never cancelled
+# midway; they queue instead.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
@@ -29,10 +39,15 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v6
 
-      # Fails if uv.lock is out of date with pyproject.toml, so a bad lockfile
-      # is caught here instead of during the Azure build.
+      # --locked fails if uv.lock is out of date with pyproject.toml.
       - name: Install dependencies from uv.lock
-        run: uv sync --frozen
+        run: uv sync --locked
+
+      - name: Compile check
+        run: uv run python -m compileall -q app
+
+      - name: Import check
+        run: uv run python -c "import app.main"
 
       # Ship only what App Service needs. Oryx builds the environment itself,
       # so .venv is not included. Do NOT add a requirements.txt: Oryx would
@@ -47,6 +62,8 @@ jobs:
             uv.lock
 
   deploy:
+    # Skipped for pull requests; runs for pushes to main and manual runs.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     needs: build
 
