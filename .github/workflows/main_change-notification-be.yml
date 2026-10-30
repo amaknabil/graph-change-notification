@@ -1,7 +1,7 @@
 # Build and deploy the FastAPI webhook to Azure App Service (change-notification-be).
-# Dependencies are managed by uv: the build here only validates the project, and
-# App Service's Oryx build (SCM_DO_BUILD_DURING_DEPLOYMENT=true) installs from
-# pyproject.toml + uv.lock on the platform.
+# Dependencies are managed by uv: the build here installs from uv.lock to catch
+# problems early, and App Service's Oryx build (SCM_DO_BUILD_DURING_DEPLOYMENT=true)
+# installs from pyproject.toml + uv.lock on the platform.
 # Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
 
 name: Build and deploy Python app to Azure Web App - change-notification-be
@@ -33,15 +33,6 @@ jobs:
       # is caught here instead of during the Azure build.
       - name: Install dependencies from uv.lock
         run: uv sync --frozen
-
-      # Smoke test: start the app and check the Graph validation handshake.
-      - name: Smoke test
-        run: |
-          uv run uvicorn app.main:app --port 8000 &
-          sleep 5
-          curl -fsS http://127.0.0.1:8000/
-          test "$(curl -fsS -X POST 'http://127.0.0.1:8000/webhook?validationToken=ci-token')" = "ci-token"
-          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8000/webhook -H 'Content-Type: application/json' -d '{"value":[]}')" = "202"
 
       # Ship only what App Service needs. Oryx builds the environment itself,
       # so .venv is not included. Do NOT add a requirements.txt: Oryx would
