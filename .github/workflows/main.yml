@@ -1,0 +1,65 @@
+# Build and deploy the FastAPI webhook to Azure App Service (change-notification-be).
+# Dependencies are managed by uv: the build here installs from uv.lock to catch
+# problems early, and App Service's Oryx build (SCM_DO_BUILD_DURING_DEPLOYMENT=true)
+# installs from pyproject.toml + uv.lock on the platform.
+# Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
+
+name: Build and deploy Python app to Azure Web App - change-notification-be
+
+on:
+  push:
+    branches:
+      - 'main'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read #This is required for actions/checkout
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python version
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      # --locked fails if uv.lock is out of date with pyproject.toml, so a bad
+      # lockfile is caught here instead of during the Azure build.
+      - name: Install dependencies from uv.lock
+        run: uv sync --locked
+
+      # Ship only what App Service needs. Oryx builds the environment itself,
+      # so .venv is not included. Do NOT add a requirements.txt: Oryx would
+      # prefer it over uv.lock.
+      - name: Upload artifact for deployment jobs
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-app
+          path: |
+            app/
+            pyproject.toml
+            uv.lock
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Download artifact from build job
+        uses: actions/download-artifact@v4
+        with:
+          name: python-app
+
+      - name: 'Deploy to Azure Web App'
+        uses: azure/webapps-deploy@v3
+        id: deploy-to-webapp
+        with:
+          app-name: 'change-notification-be'
+          slot-name: 'Production'
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_D020065F2C764C19B456AABA2D7A5AC2 }}
